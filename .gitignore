@@ -1,0 +1,6 @@
+env/
+__pycache__/
+.env
+qdrant_data/
+qdrant_storage/
+k8s_analysis.db
