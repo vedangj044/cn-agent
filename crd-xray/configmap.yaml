@@ -1,0 +1,8 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: crd-xray-updater
+  annotations:
+    kopf.io/ensure-single-instance: "true"
+data:
+  dummy: "true" 

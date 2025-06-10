@@ -10,7 +10,7 @@ import logging
 import sys
 from qdrant_client import QdrantClient
 from qdrant_client.http import models
-from main import create_embedding  # Import the embedding function
+from setup import create_embedding  # Import the embedding function
 
 # Configure logging to stdout
 logging.basicConfig(
@@ -298,7 +298,7 @@ def main():
     logger.info("Connected to SQLite database")
     
     # Sample query
-    sample_query = "Give a example for a sealed secret resource?"
+    sample_query = "are there any errors in the logs of the sealed secrets controller?"
     logger.info(f"Processing sample query: {sample_query}")
     
     try:

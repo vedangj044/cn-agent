@@ -7,7 +7,6 @@ from typing import List, Dict, Any, Optional
 import qdrant_client
 from qdrant_client.http import models
 from langchain_anthropic import ChatAnthropic
-from langgraph.graph import StateGraph, END
 import os
 from dotenv import load_dotenv
 from sentence_transformers import SentenceTransformer
@@ -249,8 +248,11 @@ def extract_pod_info(pod) -> PodInfo:
 def identify_controller(crd_name: str, crd_manifest: str, pods: List[Any]) -> str:
     """Identify the controller pod for a CRD using LLM"""
     llm = ChatAnthropic(
-        model="claude-3-7-sonnet-20250219",
-        anthropic_api_key=os.getenv("ANTHROPIC_API_KEY")
+        model_name="claude-3-7-sonnet-20250219",
+        api_key=os.getenv("ANTHROPIC_API_KEY"),
+        timeout=60,
+        stop=None,
+        temperature=0
     )
     
     # Convert pods to structured format
@@ -258,7 +260,7 @@ def identify_controller(crd_name: str, crd_manifest: str, pods: List[Any]) -> st
     
     prompt = f"""
     Given the following CRD manifest and list of pods, identify which pod is most likely to be the controller for this CRD.
-    Return the response in the following JSON format (without any markdown formatting or code blocks):
+    Return the response in the following JSON format (do not include markdown formatting or code blocks):
     {{
         "controller_pod": "pod_name",
         "confidence": 0.95,
@@ -489,79 +491,209 @@ def cleanup_fn(logger, **kwargs):
     """Cleanup resources on shutdown"""
     pass
 
-def process_user_query(query: str, conn: sqlite3.Connection):
-    """Process user query using LangGraph and LLM"""
-    llm = ChatAnthropic(
-        model="claude-3-sonnet-20240229",
-        anthropic_api_key=os.getenv("ANTHROPIC_API_KEY")
-    )
+@kopf.timer('v1', 'configmap', interval=60.0, id='periodic-update', annotations={'kopf.io/ensure-single-instance': 'true'})
+def periodic_update(logger, **kwargs):
+    """Periodically update CRD and resource data every 60 seconds"""
+    logger.info("Starting periodic update...")
+    conn = init_db()
     
-    # Define the graph nodes
-    def generate_sql(state):
-        prompt = f"""
-        Convert the following user query into an SQL query for our k8s_analysis database:
-        {state['query']}
+    # Collect all CRDs and their resources
+    crds = get_all_crds()
+    for crd in crds:
+        crd_name = crd['metadata']['name']
+        crd_manifest = json.dumps(crd)
         
-        Available tables:
-        - crd_table (crd, last_updated_timestamp, controller_name, names)
-        - controller_table (controller, last_updated_timestamp)
-        - instance_table (resource_name, crd)
-        """
-        response = llm.invoke(prompt)
-        state['sql_query'] = response.content.strip()
-        return state
-    
-    def execute_sql(state):
+        # Check if CRD exists in database and compare timestamps
         cursor = conn.cursor()
-        cursor.execute(state['sql_query'])
-        results = cursor.fetchall()
-        state['sql_results'] = results
-        return state
-    
-    def query_vector_db(state):
-        # Query all three collections in Qdrant
-        crd_results = query_vector_db(state['query'], "crd_data")
-        resource_results = query_vector_db(state['query'], "resource_data")
-        controller_results = query_vector_db(state['query'], "controller_data")
+        cursor.execute('SELECT last_updated_timestamp, controller_name FROM crd_table WHERE crd = ?', (crd_name,))
+        result = cursor.fetchone()
         
-        state['vector_results'] = {
-            'crd_data': crd_results,
-            'resource_data': resource_results,
-            'controller_data': controller_results
-        }
-        return state
-    
-    def generate_response(state):
-        prompt = f"""
-        Based on the following information, answer the user's query:
+        current_timestamp = datetime.now()
+        if result and result[0] == current_timestamp:
+            logger.info(f"Skipping CRD {crd_name} as it hasn't changed")
+            continue
+            
+        # Get all pods
+        pods = core_api.list_pod_for_all_namespaces().items
         
-        User Query: {state['query']}
-        Database Results: {state['sql_results']}
-        Vector Search Results: {json.dumps(state['vector_results'], indent=2)}
-        """
-        response = llm.invoke(prompt)
-        state['final_response'] = response.content
-        return state
+        # Check if stored controller pod still exists
+        stored_controller = result[1] if result else None
+        controller_pod = None
+        
+        if stored_controller:
+            # Check if the stored controller pod still exists
+            controller_exists = any(pod.metadata.name == stored_controller for pod in pods)
+            if controller_exists:
+                logger.info(f"Using existing controller pod {stored_controller} for CRD {crd_name}")
+                controller_pod = stored_controller
+            else:
+                logger.info(f"Stored controller pod {stored_controller} no longer exists for CRD {crd_name}, identifying new controller")
+                controller_pod = identify_controller(crd_name, crd_manifest, pods)
+        else:
+            logger.info(f"No stored controller found for CRD {crd_name}, identifying new controller")
+            controller_pod = identify_controller(crd_name, crd_manifest, pods)
+        
+        # Update database
+        cursor.execute('''
+        INSERT OR REPLACE INTO crd_table (crd, last_updated_timestamp, controller_name, names)
+        VALUES (?, ?, ?, ?)
+        ''', (crd_name, current_timestamp, controller_pod, json.dumps(crd['spec']['names'])))
+        
+        if controller_pod:
+            # Check if controller exists and compare timestamps
+            cursor.execute('SELECT last_updated_timestamp FROM controller_table WHERE controller = ?', (controller_pod,))
+            controller_result = cursor.fetchone()
+            
+            if not controller_result or controller_result[0] != current_timestamp:
+                cursor.execute('''
+                INSERT OR REPLACE INTO controller_table (controller, last_updated_timestamp)
+                VALUES (?, ?)
+                ''', (controller_pod, current_timestamp))
+                
+                # Get controller pod info
+                controller_pod_obj = next((p for p in pods if p.metadata.name == controller_pod), None)
+                if controller_pod_obj:
+                    pod_info = extract_pod_info(controller_pod_obj)
+                    controller_manifest = json.dumps(pod_info.__dict__)
+                    # Get existing controller data from Qdrant
+                    existing_controller_data = query_vector_db(controller_pod, "controller_data", limit=1)
+                    existing_logs = existing_controller_data[0].get("text", "").split("\n\nLogs:\n")[-1] if existing_controller_data else ""
+                    store_controller_data(controller_pod, controller_manifest, existing_logs)
+        
+        # Get and store resources
+        resources = get_crd_resources(crd)
+        for resource in resources:
+            resource_name = resource['metadata']['name']
+            
+            # Check if resource exists
+            cursor.execute('SELECT resource_name FROM instance_table WHERE resource_name = ?', (resource_name,))
+            resource_result = cursor.fetchone()
+            
+            if not resource_result:
+                cursor.execute('''
+                INSERT OR REPLACE INTO instance_table (resource_name, crd)
+                VALUES (?, ?)
+                ''', (resource_name, crd_name))
+                
+                # Store resource data in Qdrant
+                resource_manifest = json.dumps(resource)
+                # Get existing resource data from Qdrant
+                existing_resource_data = query_vector_db(resource_name, "resource_data", limit=1)
+                existing_logs = existing_resource_data[0].get("text", "").split("\n\nLogs:\n")[-1] if existing_resource_data else ""
+                store_resource_data(resource_name, crd_name, resource_manifest, existing_logs)
+        
+        # Store CRD data in Qdrant
+        # Get existing CRD data from Qdrant
+        existing_crd_data = query_vector_db(crd_name, "crd_data", limit=1)
+        existing_events = existing_crd_data[0].get("text", "").split("\n\nEvents:\n")[-1] if existing_crd_data else ""
+        store_crd_data(crd_name, crd_manifest, existing_events)
+        
+        conn.commit()
     
-    # Create the graph
-    workflow = StateGraph(name="query_processor")
+    conn.close()
+    logger.info("Periodic update completed")
+
+@kopf.timer('v1', 'configmap', interval=3600.0, id='log-analysis', annotations={'kopf.io/ensure-single-instance': 'true'})
+def analyze_controller_logs(logger, **kwargs):
+    """Analyze controller logs every hour to track lifecycle and errors"""
+    logger.info("Starting hourly log analysis...")
+    conn = init_db()
     
-    # Add nodes
-    workflow.add_node("generate_sql", generate_sql)
-    workflow.add_node("execute_sql", execute_sql)
-    workflow.add_node("query_vector_db", query_vector_db)
-    workflow.add_node("generate_response", generate_response)
+    try:
+        # Get all CRDs and their controllers
+        cursor = conn.cursor()
+        cursor.execute('SELECT crd, controller_name FROM crd_table WHERE controller_name IS NOT NULL')
+        crd_controllers = cursor.fetchall()
+        
+        for crd_name, controller_name in crd_controllers:
+            logger.info(f"Analyzing logs for controller {controller_name} of CRD {crd_name}")
+            
+            # Get current pod status
+            pods = core_api.list_pod_for_all_namespaces().items
+            controller_pod = next((pod for pod in pods if pod.metadata.name == controller_name), None)
+            
+            if not controller_pod:
+                logger.warning(f"Controller pod {controller_name} no longer exists")
+                continue
+                
+            # Get current logs (last 100 lines)
+            try:
+                current_logs = core_api.read_namespaced_pod_log(
+                    name=controller_name,
+                    namespace=controller_pod.metadata.namespace,
+                    tail_lines=100
+                )
+            except Exception as e:
+                logger.error(f"Failed to fetch logs for pod {controller_name}: {str(e)}")
+                continue
+            
+            # Get stored logs from vector database
+            existing_controller_data = query_vector_db(controller_name, "controller_data", limit=1)
+            stored_logs = existing_controller_data[0].get("text", "").split("\n\nLogs:\n")[-1] if existing_controller_data else ""
+            
+            # Prepare prompt for LLM
+            llm = ChatAnthropic(
+                model_name="claude-3-7-sonnet-20250219",
+                api_key=os.getenv("ANTHROPIC_API_KEY"),
+                timeout=60,
+                stop=None,
+                temperature=0
+            )
+            
+            prompt = f"""
+            Analyze the following controller logs and create a structured lifecycle summary.
+            The logs are from a Kubernetes controller pod that manages a Custom Resource Definition (CRD).
+            
+            Previous logs / lifecycle events:
+            {stored_logs}
+            
+            Current logs:
+            {current_logs}
+            
+            Please analyze these logs and provide a response in the following format:
+
+            lifecycle_events
+            <Describe the normal lifecycle events, startup, initialization, processing cycles, etc.>
+
+            error_events
+            <Describe any errors, their types, and descriptions>
+
+            Focus on:
+            1. Identifying normal lifecycle events (startup, initialization, processing cycles)
+            2. Detecting and categorizing errors
+            3. Understanding the controller's behavior patterns
+            4. Highlighting any anomalies or concerns
+            """
+            
+            try:
+                response = llm.invoke(prompt)
+                analysis_text = response.content
+                
+                # Create a structured log summary
+                log_summary = {
+                    "analysis": analysis_text,
+                    "last_updated": datetime.now().isoformat()
+                }
+                
+                logger.info(f"Log summary: {log_summary}")
+                
+                # Update the controller data in vector database with new analysis
+                controller_manifest = json.dumps(extract_pod_info(controller_pod).__dict__)
+                store_controller_data(
+                    controller_name,
+                    controller_manifest,
+                    json.dumps(log_summary, indent=2)
+                )
+                
+                logger.info(f"Successfully analyzed and updated logs for controller {controller_name}")
+                
+            except Exception as e:
+                logger.error(f"Failed to analyze logs for controller {controller_name}: {str(e)}")
+                continue
     
-    # Add edges
-    workflow.add_edge("generate_sql", "execute_sql")
-    workflow.add_edge("execute_sql", "query_vector_db")
-    workflow.add_edge("query_vector_db", "generate_response")
-    workflow.add_edge("generate_response", END)
-    
-    # Compile and run
-    app = workflow.compile()
-    result = app.invoke({"query": query})
-    return result['final_response']
+    finally:
+        conn.close()
+        logger.info("Hourly log analysis completed")
 
 if __name__ == "__main__":
     kopf.run()
