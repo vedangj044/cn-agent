@@ -1,0 +1,9 @@
+{
+    "dependencies": [
+        "./crd-xray-agent"
+    ],
+    "graphs": {
+        "my_agent": "./crd-xray-agent/agent.py:graph"
+    },
+    "env": ".env"
+}

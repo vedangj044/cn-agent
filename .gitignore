@@ -5,3 +5,4 @@ qdrant_data/
 qdrant_storage/
 k8s_analysis.db
 .vscode/
+.langgraph_api/

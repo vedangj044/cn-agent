@@ -91,8 +91,11 @@ def store_crd_data(
                     vector=vector,
                     payload={
                         "crd_name": crd_name,
-                        "text": combined_text,
-                        "timestamp": datetime.now().isoformat(),
+                        "page_content": combined_text,
+                        "metadata": {
+                            "crd_name": crd_name,
+                            "timestamp": datetime.now().isoformat(),
+                        },
                     },
                 )
             ],
@@ -124,8 +127,12 @@ def store_resource_data(
                     payload={
                         "resource_name": resource_name,
                         "crd_name": crd_name,
-                        "text": combined_text,
-                        "timestamp": datetime.now().isoformat(),
+                        "page_content": combined_text,
+                        "metadata": {
+                            "crd_name": crd_name,
+                            "resource_name": resource_name,
+                            "timestamp": datetime.now().isoformat(),
+                        },
                     },
                 )
             ],
@@ -156,8 +163,11 @@ def store_controller_data(
                     vector=vector,
                     payload={
                         "controller_name": controller_name,
-                        "text": combined_text,
-                        "timestamp": datetime.now().isoformat(),
+                        "page_content": combined_text,
+                        "metadata": {
+                            "controller_name": controller_name,
+                            "timestamp": datetime.now().isoformat(),
+                        },
                     },
                 )
             ],

@@ -18,56 +18,6 @@ logger = logging.getLogger(__name__)
 # Load environment variables
 load_dotenv()
 
-def print_sqlite_contents():
-    """Print contents of SQLite database tables"""
-    logger.info("Connecting to SQLite database...")
-    conn = sqlite3.connect('k8s_analysis.db')
-    cursor = conn.cursor()
-    
-    # Get list of tables
-    cursor.execute("SELECT name FROM sqlite_master WHERE type='table'")
-    tables = cursor.fetchall()
-    
-    print("\n=== SQLite Database Contents ===")
-    for table in tables:
-        table_name = table[0]
-        print(f"\n--- Table: {table_name} ---")
-        
-        # Get column names
-        cursor.execute(f"PRAGMA table_info({table_name})")
-        columns = [col[1] for col in cursor.fetchall()]
-        
-        # Get table contents
-        cursor.execute(f"SELECT * FROM {table_name}")
-        rows = cursor.fetchall()
-        
-        if not rows:
-            print("  No data")
-            continue
-            
-        # Print column headers
-        print("  | " + " | ".join(columns) + " |")
-        print("  |" + "|".join(["-" * len(col) for col in columns]) + "|")
-        
-        # Print rows
-        for row in rows:
-            # Format each cell, handling None values and JSON strings
-            formatted_cells = []
-            for cell in row:
-                if cell is None:
-                    formatted_cells.append("NULL")
-                elif isinstance(cell, str) and (cell.startswith('{') or cell.startswith('[')):
-                    try:
-                        # Pretty print JSON
-                        formatted_cells.append(json.dumps(json.loads(cell), indent=2))
-                    except:
-                        formatted_cells.append(str(cell))
-                else:
-                    formatted_cells.append(str(cell))
-            print("  | " + " | ".join(formatted_cells) + " |")
-    
-    conn.close()
-
 def print_qdrant_contents():
     """Print contents of Qdrant collections"""
     logger.info("Connecting to Qdrant...")
@@ -115,7 +65,6 @@ def print_qdrant_contents():
 def main():
     """Main function to print database contents"""
     try:
-        print_sqlite_contents()
         print_qdrant_contents()
     except Exception as e:
         logger.error(f"Error during database inspection: {str(e)}")

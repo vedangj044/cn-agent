@@ -186,7 +186,7 @@ def analyze_controller_logs(**kwargs):
             crd_obj.controller_name, "controller_data", qdrant, limit=1
         )
         stored_logs = (
-            existing_controller_data[0].get("text", "").split("\n\nLogs:\n")[-1]
+            existing_controller_data[0].get("page_content", "").split("\n\nLogs:\n")[-1]
             if existing_controller_data
             else ""
         )
