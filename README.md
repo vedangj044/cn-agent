@@ -1,82 +1,68 @@
-# CRD X-Ray
+# 🩻 CRD-Xray
 
-A Kubernetes operator that analyzes Custom Resource Definitions (CRDs) and their controllers using LLM-powered analysis.
+> *“Ever wondered what that mysterious `FooBar.custom.io` CRD actually **does**?”*
+> Enter **CRD-Xray** — your AI-powered Kubernetes sidekick that breaks open black boxes of Custom Resource Definitions and their controllers.
 
-## Features
+---
 
-- Monitors all CRDs in a Kubernetes cluster
-- Tracks CRD events and resources
-- Identifies controllers using LLM analysis
-- Stores data in SQLite and Qdrant vector database
-- Provides natural language querying capabilities
+## 👀 What is CRD-Xray?
 
-## Prerequisites
+**CRD-Xray** is a Kubernetes operator infused with the power of LLMs (Large Language Models). It lives inside your cluster and answers questions like:
 
-- Python 3.8+
-- Kubernetes cluster with kubectl configured
-- Qdrant database instance
-- Anthropic API key
+* *“What does this CRD actually do?”*
+* *“What does its controller manage?”*
+* *“Why are these CRs failing mysteriously?”*
 
-## Setup
+Whether it’s an internal CRD cooked up in your org or an obscure open-source one — CRD-Xray is here to help.
 
-1. Install dependencies:
-```bash
-pip install -r requirements.txt
-```
+---
 
-2. Create a `.env` file with the following variables:
-```
-ANTHROPIC_API_KEY=your_anthropic_api_key
-QDRANT_URL=your_qdrant_url
-QDRANT_PORT=your_qdrant_port
-```
+## 🚀 Features
 
-3. Run the operator:
-```bash
-python main.py
-```
+* 🧠 **Understand Your CRDs**
+  Get rich, AI-powered insights into what a CRD does, what its fields mean, and how it's used in your cluster.
 
-## Usage
+* 🔍 **Lifecycle Event Summarization**
+  Tired of reading 300 log lines? We summarize your controller logs into human-readable lifecycle events and error states.
 
-The operator will automatically:
-1. Discover all CRDs in the cluster
-2. Collect events and resources for each CRD
-3. Identify controllers using LLM analysis
-4. Store data in SQLite and Qdrant
-5. Enable natural language querying of the collected data
+* 🧩 **Agent Plugin Architecture** *(WIP)*
+  Seamlessly integrates with other AI agents for an unbreakable context pipeline across your infra.
 
-## Database Schema
+* 📊 **CRD Metrics Export** *(WIP)*
+  Automatically collects and exports CRD-level metrics like number of resources, controller errors, etc.
 
-### SQLite Tables
+---
 
-1. `crd_table`:
-   - crd (TEXT, PRIMARY KEY)
-   - last_updated_timestamp (DATETIME)
-   - controller_name (TEXT)
-   - names (TEXT)
+## 💡 Core Idea
 
-2. `controller_table`:
-   - controller (TEXT, PRIMARY KEY)
-   - last_updated_timestamp (DATETIME)
+If you're running a modern K8s-based business, you're probably using custom CRDs and operators. These are **powerful**, but:
 
-3. `instance_table`:
-   - resource_name (TEXT, PRIMARY KEY)
-   - crd (TEXT, FOREIGN KEY)
+* New engineers can't make sense of them without trawling through old code or outdated internal docs.
+* Debugging CR issues becomes a game of guess-the-error-message.
 
-### Qdrant Collections
+CRD-Xray fixes that. It persistently stores and indexes controller logs, CRD schemas, and real CR instances into a vector database. When queried (via API or UI), it offers **insightful**, **contextual**, and **actionable** answers.
 
-1. `crd_data`: Stores CRD events and manifests
-2. `resource_data`: Stores resource logs and manifests
-3. `controller_data`: Stores controller logs and manifests
+---
 
-## Querying
+## ⚠️ Disclaimer
 
-The operator provides a natural language interface for querying the collected data. Example queries:
+This is an early **Proof of Concept**.
+I am still laying the plumbing, sketching out the UI, and taming the agents. But I am building in the open — and feedback is welcome!
 
-- "Show me all CRDs managed by the cert-manager controller"
-- "What resources are associated with the prometheus CRD?"
-- "List all events for the istio CRD"
+Expect big things soon 🚧
 
-## License
+---
 
-MIT 
+## 📜 License
+
+MIT – Free to use, fork, remix, and share. Just don’t forget to ✨ star ✨ the repo if you liked it.
+
+---
+
+## 👋 Contribute / Say Hi
+
+Got ideas?
+Want to use it at your company?
+Spotted a bug with an unpronounceable CRD?
+
+Open an issue, drop a PR, or just reach out! Let's make Kubernetes more explainable, one CRD at a time.
