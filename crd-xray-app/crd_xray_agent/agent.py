@@ -40,9 +40,9 @@ logging.info("Qdrant client initialized successfully")
 workflow = StateGraph(AgentState)
 
 sql_tool = get_sql_tool(sql_db, llm)
-sql_agent = SQLAgent(llm, sql_tool, "crd-xray-agent/prompts/sql_prompt.txt")
+sql_agent = SQLAgent(llm, sql_tool, "crd_xray_agent/prompts/sql_prompt.txt")
 vector_agent = VectorAgent(qdrant, embedding)
-synthesizer = SynthesizerAgent(llm, "crd-xray-agent/prompts/synthesizer_prompt.txt")
+synthesizer = SynthesizerAgent(llm, "crd_xray_agent/prompts/synthesizer_prompt.txt")
 
 workflow.add_node("sql_agent", sql_agent)
 workflow.add_node("vector_agent", vector_agent)

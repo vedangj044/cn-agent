@@ -25,6 +25,7 @@ import utils.vectordb
 import json
 from models import CRD, Instance
 from datetime import datetime, timezone
+from kubernetes import config
 
 
 # Configure logging
@@ -34,11 +35,15 @@ logging.basicConfig(
 
 # Load Kubernetes configuration
 try:
-    kubernetes.config.load_kube_config()
-    logging.info("Successfully loaded Kubernetes configuration")
-except Exception as e:
-    logging.error(f"Failed to load Kubernetes configuration: {str(e)}")
-    raise
+    config.load_incluster_config()
+    logging.info("Loaded in-cluster Kubernetes configuration")
+except config.ConfigException:
+    try:
+        config.load_kube_config()
+        logging.info("Loaded local Kubernetes configuration")
+    except Exception as e:
+        logging.error(f"Failed to load Kubernetes configuration: {str(e)}")
+        raise
 
 # Initialize Kubernetes client
 logging.info("Initializing Kubernetes client...")

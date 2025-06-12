@@ -1,0 +1,86 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: crd-xray-statefulset
+  namespace: default
+spec:
+  serviceName: crd-xray-service
+  replicas: 1
+  selector:
+    matchLabels:
+      app: crd-xray
+  template:
+    metadata:
+      labels:
+        app: crd-xray
+    spec:
+      serviceAccountName: crd-xray-sa
+      containers:
+      - name: qdrant
+        image: qdrant/qdrant:latest
+        ports:
+        - containerPort: 6333
+          name: qdrant-api
+        - containerPort: 6334
+          name: qdrant-grpc
+        volumeMounts:
+        - name: shared-storage
+          mountPath: /qdrant/storage
+          subPath: qdrant-data
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "100m"
+          limits:
+            memory: "512Mi"
+            cpu: "500m"
+
+      - name: crd-xray-controller
+        image: vedangj044/crd-xray-controller:0.1
+        volumeMounts:
+        - name: shared-storage
+          mountPath: /app/data
+          subPath: controller-data
+        env:
+        - name: DATABASE_URL
+          value: "sqlite:////app/data/k8s_analysis.db"
+        - name: QDRANT_URL
+          value: "http://localhost"
+        - name: QDRANT_PORT
+          value: "6333"
+        - name: ANTHROPIC_API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: anthropic-api-key
+              key: ANTHROPIC_API_KEY
+
+      - name: crd-xray-agent
+        image: vedangj044/crd-xray-agent:0.1
+        ports:
+        - containerPort: 8080
+          name: http-api
+        volumeMounts:
+        - name: shared-storage
+          mountPath: /app/data
+          subPath: controller-data
+        env:
+        - name: DATABASE_URI
+          value: "sqlite:////app/data/k8s_analysis.db"
+        - name: QDRANT_URL
+          value: "http://localhost"
+        - name: QDRANT_PORT
+          value: "6333"
+        - name: ANTHROPIC_API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: anthropic-api-key
+              key: ANTHROPIC_API_KEY
+  
+  volumeClaimTemplates:
+  - metadata:
+      name: shared-storage
+    spec:
+      accessModes: ["ReadWriteOnce"]
+      resources:
+        requests:
+          storage: 2Gi
