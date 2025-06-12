@@ -5,6 +5,9 @@
 
 ---
 
+Demo coming soon — [click here to get notified](https://forms.gle/wRe86bFY2anCkbdX9) 
+
+
 ## 👀 What is CRD-Xray?
 
 **CRD-Xray** is a Kubernetes operator infused with the power of LLMs (Large Language Models). It lives inside your cluster and answers questions like:
